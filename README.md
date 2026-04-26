@@ -13,15 +13,6 @@ python3 -m http.server 4173
 
 Then open [http://127.0.0.1:4173](http://127.0.0.1:4173).
 
-## Verify
-
-From the repo root:
-
-```bash
-node tests/test_gen3_webapp_exporter.mjs
-```
-
-That test regenerates fresh CLI outputs for `firered` and `autumnred`, then asserts the browser exporter matches them exactly.
 
 ## Data Snapshots
 
