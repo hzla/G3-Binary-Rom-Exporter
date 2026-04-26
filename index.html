@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Gen 3 ROM Exporter</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <h1>Gen 3 Calc Exporter</h1>
+        <p class="lede">
+          Upload .gba rom and .toml file from HexManiacAdvance
+        </p>
+      </section>
+
+      <section class="panel form-panel">
+        <div class="upload-grid">
+          <label class="upload-card">
+            <span class="upload-title">Upload Rom</span>
+            <input id="rom-file" type="file" accept=".gba,application/octet-stream">
+            <span id="rom-file-name" class="upload-name">No ROM selected</span>
+          </label>
+
+          <label class="upload-card">
+            <span class="upload-title">TOML</span>
+            <input id="toml-file" type="file" accept=".toml,text/plain">
+            <span id="toml-file-name" class="upload-name">No toml selected</span>
+          </label>
+        </div>
+
+        <div class="meta-grid">
+          <label class="field">
+            <span>Output Slug</span>
+            <input id="slug-input" type="text" placeholder="Your rom hack name all lowercase no spaces: ex: firered">
+          </label>
+          <label class="field">
+            <span>Displayed Title</span>
+            <input id="title-input" type="text" placeholder="Fire Red">
+          </label>
+        </div>
+
+        <div class="actions">
+          <button id="generate-button" class="primary" type="button">Generate Outputs</button>
+          <button id="download-all-button" class="secondary" type="button" disabled>Download All</button>
+        </div>
+
+        <div id="status-banner" class="status-banner" role="status" aria-live="polite"></div>
+        <div id="error-banner" class="error-banner" role="alert" hidden></div>
+      </section>
+
+      <section class="panel outputs-panel">
+        <div class="panel-head">
+          <h2>Outputs</h2>
+          <p>Send the files below to hzla on Discord to host your calc.</p>
+        </div>
+
+        <div class="download-list">
+          <article class="download-card">
+            <div>
+              <h3>Calc Data</h3>
+              <p id="calc-meta">Waiting for generation</p>
+            </div>
+            <button id="download-calc-button" type="button" disabled>Download</button>
+          </article>
+
+          <article class="download-card">
+            <div>
+              <h3>Dex Data</h3>
+              <p id="dex-meta">Waiting for generation</p>
+            </div>
+            <button id="download-dex-button" type="button" disabled>Download</button>
+          </article>
+
+          <article class="download-card">
+            <div>
+              <h3>Dex Search Index</h3>
+              <p id="search-meta">Waiting for generation</p>
+            </div>
+            <button id="download-search-button" type="button" disabled>Download</button>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel summary-panel">
+        <div class="panel-head">
+          <h2>Summary</h2>
+          <p></p>
+        </div>
+        <div id="summary-grid" class="summary-grid"></div>
+      </section>
+    </main>
+
+    <script type="module" src="./src/app.mjs"></script>
+  </body>
+</html>
