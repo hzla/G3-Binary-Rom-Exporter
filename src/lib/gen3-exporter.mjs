@@ -41,6 +41,19 @@ const GEN3_TYPE_NAME_ALIASES = {
   dark: "Dark",
 };
 
+const MAP_HEADER_EVENTS_POINTER_OFFSET = 4;
+const MAP_EVENTS_OBJECT_COUNT_OFFSET = 0;
+const MAP_EVENTS_OBJECTS_POINTER_OFFSET = 4;
+const MAP_OBJECT_ENTRY_SIZE = 24;
+const MAP_OBJECT_SCRIPT_POINTER_OFFSET = 16;
+const TRAINER_BATTLE_SCAN_LIMIT = 4096;
+const TRAINER_BATTLE_OPCODE = 0x5C;
+const TRAINER_BATTLE_END_OPCODE = 0x6C;
+const TRAINER_BATTLE_END_VARIANT = 0x02;
+const TRAINER_BATTLE_MAX_VARIANT = 0x0C;
+const VS_SEEKER_MATCH_COUNT = 6;
+const VS_SEEKER_ENTRY_SIZE = 14;
+
 const NATURES = [
   "Hardy", "Lonely", "Brave", "Adamant", "Naughty",
   "Bold", "Docile", "Relaxed", "Impish", "Lax",
@@ -444,6 +457,33 @@ function ensureNumberedTrainerSuffixSpacing(name) {
   return /\d+$/.test(name) ? `${name} ` : name;
 }
 
+function buildTrainerSetLabel(level, visibleName, duplicateIndex) {
+  const duplicateSuffix = "*".repeat(Math.max(0, duplicateIndex - 1));
+  return `Lvl ${level}${duplicateSuffix} ${visibleName}`;
+}
+
+function buildTrainerSetLabelWithLocation(level, visibleName, duplicateIndex, locationName = "") {
+  const baseLabel = buildTrainerSetLabel(level, locationName ? String(visibleName).trimEnd() : visibleName, duplicateIndex);
+  return locationName ? `${baseLabel} - ${locationName}` : baseLabel;
+}
+
+function addTrainerLocation(mapping, trainerId, locationName) {
+  if (!Number.isInteger(trainerId) || trainerId <= 0 || !locationName) return;
+  mapping[trainerId] ||= [];
+  if (!mapping[trainerId].includes(locationName)) mapping[trainerId].push(locationName);
+}
+
+function scanTrainerBattleId(rom, pointer) {
+  const end = Math.min(rom.length - 3, pointer + TRAINER_BATTLE_SCAN_LIMIT);
+  for (let offset = pointer; offset <= end; offset += 1) {
+    if (rom[offset] === TRAINER_BATTLE_END_OPCODE && rom[offset + 1] === TRAINER_BATTLE_END_VARIANT) return null;
+    if (rom[offset] === TRAINER_BATTLE_OPCODE && rom[offset + 1] <= TRAINER_BATTLE_MAX_VARIANT) {
+      return rom[offset + 2] | (rom[offset + 3] << 8);
+    }
+  }
+  return null;
+}
+
 function ivByteToStatIv(value) {
   return Math.min(31, Math.max(0, Math.floor((value * 31 / 255) + 0.5)));
 }
@@ -704,6 +744,24 @@ class ExportContext {
 
   speciesNames() {
     return this.fixedStringTable("data.pokemon.names").map((value) => normalizeSpeciesName(value));
+  }
+
+  speciesNamesByNationalDex() {
+    if (this._cache.speciesNamesByNationalDex) return this._cache.speciesNamesByNationalDex;
+    const names = this.speciesNames();
+    const anchor = this.layout.anchorOptional("data.pokedex.national");
+    if (!anchor) {
+      this._cache.speciesNamesByNationalDex = names;
+      return names;
+    }
+    const count = this.resolveCount("data.pokedex.national");
+    const values = [""];
+    for (let index = 0; index < count; index += 1) {
+      const speciesId = this.reader.readU16(anchor.address + index * 2);
+      values.push(speciesId >= 0 && speciesId < names.length ? names[speciesId] : "");
+    }
+    this._cache.speciesNamesByNationalDex = values;
+    return values;
   }
 
   moveNames() {
@@ -1067,6 +1125,71 @@ class ExportContext {
     return lookup;
   }
 
+  vsSeekerRows() {
+    const anchor = this.layout.anchorOptional("data.trainers.vsseeker");
+    if (!anchor) return [];
+    if (this._cache.vsSeekerRows) return this._cache.vsSeekerRows;
+    const count = parseCountExpr(lastBracketSuffix(anchor.format), (token) => this.resolveCount(token));
+    const rows = [];
+    for (let index = 0; index < count; index += 1) {
+      const start = anchor.address + (index * VS_SEEKER_ENTRY_SIZE);
+      rows.push({
+        matches: Array.from({ length: VS_SEEKER_MATCH_COUNT }, (_value, matchIndex) => this.reader.readU16(start + (matchIndex * 2))),
+        bank: this.reader.readU8(start + 12),
+        map: this.reader.readU8(start + 13),
+      });
+    }
+    this._cache.vsSeekerRows = rows;
+    return rows;
+  }
+
+  trainerLocationLookup() {
+    if (this._cache.trainerLocationLookup) return this._cache.trainerLocationLookup;
+    const bankMapLookup = this.bankMapNameLookup();
+    const trainerLocations = {};
+
+    for (const row of this.vsSeekerRows()) {
+      const locationName = bankMapLookup[`${row.bank}:${row.map}`];
+      if (!locationName) continue;
+      for (const trainerId of row.matches) addTrainerLocation(trainerLocations, trainerId, locationName);
+    }
+
+    const mapAnchor = this.layout.anchor("data.maps.banks");
+    const bankCount = parseCountExpr(lastBracketSuffix(mapAnchor.format), (token) => this.resolveCount(token));
+    for (let bank = 0; bank < bankCount; bank += 1) {
+      const bankPointer = this.reader.readPointer(mapAnchor.address + (bank * 4));
+      if (!bankPointer) continue;
+      for (let mapIndex = 0; mapIndex < 512; mapIndex += 1) {
+        const headerPointer = this.reader.readPointer(bankPointer + (mapIndex * 4));
+        if (!headerPointer) {
+          if (mapIndex > 0) break;
+          continue;
+        }
+        const locationName = bankMapLookup[`${bank}:${mapIndex}`];
+        if (!locationName) continue;
+        const eventsPointer = this.reader.readPointer(headerPointer + MAP_HEADER_EVENTS_POINTER_OFFSET);
+        if (!eventsPointer) continue;
+        const objectCount = this.reader.readU8(eventsPointer + MAP_EVENTS_OBJECT_COUNT_OFFSET);
+        const objectsPointer = this.reader.readPointer(eventsPointer + MAP_EVENTS_OBJECTS_POINTER_OFFSET);
+        if (!objectCount || !objectsPointer) continue;
+        for (let objectIndex = 0; objectIndex < objectCount; objectIndex += 1) {
+          const objectStart = objectsPointer + (objectIndex * MAP_OBJECT_ENTRY_SIZE);
+          const scriptPointer = this.reader.readPointer(objectStart + MAP_OBJECT_SCRIPT_POINTER_OFFSET);
+          if (!scriptPointer) continue;
+          const trainerId = scanTrainerBattleId(this.reader.rom, scriptPointer);
+          if (trainerId !== null) addTrainerLocation(trainerLocations, trainerId, locationName);
+        }
+      }
+    }
+
+    const finalized = {};
+    for (const [trainerId, locations] of Object.entries(trainerLocations)) {
+      if (locations.length) finalized[trainerId] = locations.join(" / ");
+    }
+    this._cache.trainerLocationLookup = finalized;
+    return finalized;
+  }
+
   wildEncounters() {
     if (this._cache.wildEncounters) return this._cache.wildEncounters;
     const anchor = this.layout.anchor("data.pokemon.wild");
@@ -1096,7 +1219,6 @@ class ExportContext {
 }
 
 function buildCalcOutput(ctx, title) {
-  const rawSpeciesNames = ctx.fixedStringTable("data.pokemon.names");
   const rawMoveNames = ctx.fixedStringTable("data.pokemon.moves.names");
   const speciesNames = ctx.speciesNames();
   const moveNames = ctx.moveNames();
@@ -1109,13 +1231,9 @@ function buildCalcOutput(ctx, title) {
   const trainers = ctx.trainerRecords();
   const trainerClassNames = ctx.trainerClassNames();
   const trainerEvs = ctx.trainerEvs();
-  const [poksReplacements, pokReplacements] = buildReplacementMaps(
-    savPokNames,
-    rawSpeciesNames,
-    speciesNames,
-    (name) => normalizeCalcSpeciesComparisonName(name),
-    (name) => normalizeCalcSpeciesComparisonName(name)
-  );
+  const trainerLocationLookup = ctx.trainerLocationLookup();
+  const poksReplacements = {};
+  const pokReplacements = {};
   const [moveReplacementsDisplay, moveReplacementsIds] = buildReplacementMaps(
     savMoveNames,
     rawMoveNames,
@@ -1178,17 +1296,25 @@ function buildCalcOutput(ctx, title) {
       if (trainer.trainerId < trainerEvs.length) extraRow = trainerEvs[trainer.trainerId];
       else if (trainer.classId < trainerEvs.length) extraRow = trainerEvs[trainer.classId];
     }
+    const duplicateLevelSpeciesCounts = {};
     for (let index = 0; index < party.length; index += 1) {
       const member = party[index];
       if (member.speciesId <= 0 || member.speciesId >= speciesNames.length) continue;
       const speciesName = speciesNames[member.speciesId];
+      const duplicateKey = `${member.level}:${speciesName}`;
+      duplicateLevelSpeciesCounts[duplicateKey] = (duplicateLevelSpeciesCounts[duplicateKey] || 0) + 1;
       const explicitMoves = member.moveIds.filter((moveId) => moveId > 0 && moveId < moveNames.length).map((moveId) => moveNames[moveId]);
       const finalMoves = explicitMoves.length ? explicitMoves : defaultMoveNames(levelUp[member.speciesId], moveNames, member.level);
       const natureData = trainerResults[index] || { nature: "Hardy", pid: 0 };
       const slots = speciesSlotMap[member.speciesId] || {};
       const itemName = member.itemId > 0 && member.itemId < itemNames.length ? itemNames[member.itemId] : "-";
       const evs = extraRow ? extraRow.evs : { hp: 0, at: 0, df: 0, sa: 0, sd: 0, sp: 0 };
-      const label = `Lvl ${member.level} ${visibleName}`;
+      const label = buildTrainerSetLabelWithLocation(
+        member.level,
+        visibleName,
+        duplicateLevelSpeciesCounts[duplicateKey],
+        trainerLocationLookup[trainer.trainerId] || ""
+      );
       formattedSets[speciesName] ||= {};
       formattedSets[speciesName][label] = {
         level: member.level,

@@ -31,6 +31,22 @@ body {
   padding: 32px 18px 48px;
 }
 
+a {
+  color: var(--accent);
+}
+
+a:hover {
+  color: var(--accent-strong);
+}
+
+code {
+  padding: 0.08rem 0.32rem;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-family: "Courier New", Courier, monospace;
+  font-size: 0.94em;
+}
+
 .shell {
   max-width: 1120px;
   margin: 0 auto;
@@ -323,6 +339,42 @@ button:disabled {
   font-weight: 700;
   letter-spacing: -0.04em;
   color: var(--accent);
+}
+
+.instructions-body {
+  padding: 18px 26px 26px;
+  display: grid;
+  gap: 20px;
+}
+
+.steps-list {
+  margin: 0;
+  padding-left: 1.4rem;
+  color: var(--ink);
+  line-height: 1.75;
+}
+
+.steps-list li + li {
+  margin-top: 10px;
+}
+
+.settings-figure {
+  margin: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.settings-image {
+  display: block;
+  width: 100%;
+  max-width: 760px;
+  border: 1px solid var(--line);
+  background: var(--panel-strong);
+}
+
+.settings-figure figcaption {
+  color: var(--muted);
+  line-height: 1.5;
 }
 
 @media (max-width: 760px) {
